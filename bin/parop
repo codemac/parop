@@ -4,16 +4,15 @@ exec guile -e "main" -s "$0" "$@"
 !#
 ;;;;
 ;;;;
-;;; raw text can include ~(). Scheme can include #~. they should be
-;;; able to nest. Next is to figure out how to wrap this all up in
-;;; sxml.
+;;; raw text/template can include ~(). Scheme/script can include #~. they
+;;; should be able to nest. Next is to figure out how to wrap this all
+;;; up in sxml.
 ;;;
 ;; ok, so there is ~(), which we can do inline anywhere, and then
 ;; replace with
 
-(use-modules (ice-9 q))
 
-(define (process-inner char iport)
+(define (process-inner-raw char iport)
   (define rawresult '())
   ;; first, read in first newline
   (if (not (eq? (peek-char iport) #\newline))
@@ -21,35 +20,33 @@ exec guile -e "main" -s "$0" "$@"
   ;; now discard that newline! hah
   (read-char iport)
   (let loop ((cic (read-char iport)))
-       (cond
-	((eof-object? cic)
-	 (error "Didn't find a concluding ~#, bug??"))
-	((eq? cic #\~)
-	 (if (eq? (peek-char iport) #\#)
-	     (begin
+    (cond
+     ((eof-object? cic)
+      (error "Didn't find a concluding ~#, bug??"))
+     ((eq? cic #\~)
+      (if (eq? (peek-char iport) #\#)
+	  (begin
 	       ;; advance 1 char to get rid of hash
-	       (read-char iport)
-	       ;; then remove final newline by using cdr
-	       (if (not (eq? (car rawresult) #\newline))
-		   (error "Need a newline before final concluding ~#"))
-	       (display (reverse-list->string (cdr rawresult))))
-	     (begin
-	       (set! rawresult (cons cic rawresult))
-	       (loop (read-char iport)))))
-	(else
-	 (set! rawresult (cons cic rawresult))
-	 (loop (read-char iport))))))
+	    (read-char iport)
+	    ;; then remove final newline by using cdr
+	    (if (not (eq? (car rawresult) #\newline))
+		(error "Need a newline before final concluding ~#"))
+	    `(display ,(reverse-list->string (cdr rawresult))))
+	  (begin
+	    (set! rawresult (cons cic rawresult))
+	    (loop (read-char iport)))))
+     (else
+      (set! rawresult (cons cic rawresult))
+      (loop (read-char iport))))))
 
-(read-hash-extend #\~ process-inner)
+(read-hash-extend #\~ process-inner-raw)
+(define (printable? s)
+  (or (number? s)
+      (string? s)
+      (list?   s)
+      (symbol? s)))
 ;; lifted from lips
-(define (process iport oport)
-
-  (define (printable? s)
-    (or (number? s)
-        (string? s)
-        (list?   s)
-	(symbol? s)))
-  
+(define (process-outer-raw iport oport)
   (define line-number 0)
   (define first-character #t)
   ;line-number -> for error reporting
@@ -98,6 +95,23 @@ exec guile -e "main" -s "$0" "$@"
       (if (not (eof-object? cic))
         (loop (read-char iport)))))
 
+(define* (read-and-eval! #:optional (port (current-input-port)))
+  (let repl-loop ((expr (read port)))
+    (if (not (eof-object? expr))
+	(let ((output (primitive-eval expr)))
+	  (if (printable? output)
+	      (display output))
+	  (repl-loop (read port))))))
+
+;; we should define how we want to read. Either in SXML default
+;; (i.e. template data), RAWTEXT default (template text), or in SCHEME
+;; default (i.e. script).
+;;
+;; TODO: What is the difference between template data & template
+;; rawtext? I think it's potentially that the scheme reader is not
+;; like an XML reader. It doesn't just let raw text exist
+;; e'erywhere.... shit my template language (empty text) doesn't
+;; include sxml parsing! ass!
 (define (main args)
   (case (length args)
     ((3)
@@ -105,4 +119,9 @@ exec guile -e "main" -s "$0" "$@"
      (set-current-output-port (open-file (list-ref args 2) "w")))
     ((1) '())
     (else (usage)))
-  (process (current-input-port) (current-output-port)))
+
+  ;; if scheme mode (will we ever do this?!)
+  (read-and-eval!)
+
+  ;; if template mode
+  (process-outer-raw (current-input-port) (current-output-port)))
