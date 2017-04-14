@@ -1,0 +1,108 @@
+#!/bin/sh
+# -*- scheme -*-
+exec guile -e "main" -s "$0" "$@"
+!#
+;;;;
+;;;;
+;;; raw text can include ~(). Scheme can include #~. they should be
+;;; able to nest. Next is to figure out how to wrap this all up in
+;;; sxml.
+;;;
+;; ok, so there is ~(), which we can do inline anywhere, and then
+;; replace with
+
+(use-modules (ice-9 q))
+
+(define (process-inner char iport)
+  (define rawresult '())
+  ;; first, read in first newline
+  (if (not (eq? (peek-char iport) #\newline))
+      (error "Need a newline after beginning #~!"))
+  ;; now discard that newline! hah
+  (read-char iport)
+  (let loop ((cic (read-char iport)))
+       (cond
+	((eof-object? cic)
+	 (error "Didn't find a concluding ~#, bug??"))
+	((eq? cic #\~)
+	 (if (eq? (peek-char iport) #\#)
+	     (begin
+	       ;; advance 1 char to get rid of hash
+	       (read-char iport)
+	       ;; then remove final newline by using cdr
+	       (if (not (eq? (car rawresult) #\newline))
+		   (error "Need a newline before final concluding ~#"))
+	       (display (reverse-list->string (cdr rawresult))))
+	     (begin
+	       (set! rawresult (cons cic rawresult))
+	       (loop (read-char iport)))))
+	(else
+	 (set! rawresult (cons cic rawresult))
+	 (loop (read-char iport))))))
+
+(read-hash-extend #\~ process-inner)
+;; lifted from lips
+(define (process iport oport)
+
+  (define (printable? s)
+    (or (number? s)
+        (string? s)
+        (list?   s)
+	(symbol? s)))
+  
+  (define line-number 0)
+  (define first-character #t)
+  ;line-number -> for error reporting
+  ;first-character -> are we processing the first character of the line?
+  ;			If so and it is a macro that produces no printable output
+  ;			and nothing else is on the line
+  ;			we will remove the following newline
+  ;we're going to loop over all the characters
+  ;in the file looking for escapes
+  ;cic -> current input character
+  (let loop ((cic (read-char iport)))
+      (cond 
+	;if we find a tilda then check to see if the next character
+	;is also a tilda. If it is, then we output a tilda and eat the
+	;tilda from input.
+	((eq? cic #\~)
+		(if (eq? (peek-char iport) #\~)
+		  (begin
+		    (display "~" oport)
+		    (read-char iport))
+		  ;if the next character is not a tilda then read in a s-exp
+			;evaluate and print output
+			;if we're at the beginning of a line and the character
+			;following the expression is a newline then, if the expression
+			;doesn't evaluate to something printable, ignore the newline
+		  (let* ((expr (read iport))
+		        (output (primitive-eval expr))) 
+		      (if (printable? output)
+			(display output oport)
+			(if (and first-character
+			      (eq? (peek-char iport) #\newline))
+			  (read-char iport))))))
+
+	((eq? cic #\newline)					
+		(display cic oport)
+		(set! first-character #t)
+		(set! line-number (1+ line-number)))
+
+	((eof-object? cic))
+
+	(else
+	 	(if first-character 
+		  (set! first-character #f))
+	  	(display cic oport)))
+
+      (if (not (eof-object? cic))
+        (loop (read-char iport)))))
+
+(define (main args)
+  (case (length args)
+    ((3)
+     (set-current-input-port (open-file (list-ref args 1) "r"))
+     (set-current-output-port (open-file (list-ref args 2) "w")))
+    ((1) '())
+    (else (usage)))
+  (process (current-input-port) (current-output-port)))

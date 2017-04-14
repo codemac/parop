@@ -1,0 +1,32 @@
+The idea is simple:
+
+Template data & Scheme data:
+
+In a template file you'd have something like:
+
+<html>
+<head>
+<title>myfile</title>
+</head>
+<body>
+~(for-each display '(1 2 3 4))
+</body>
+</html>
+
+
+In a scheme file you'd do the following:
+
+(use-modules (my stuff))
+
+(define (proc a)
+  (for-each
+#~
+<li>This will be raw data for ~(item) that is repeated<\li>
+~#
+'(1 2 3 4)))
+
+The hope is that you can essentially go back and forth, and generate
+things like gsl / xnf with sxml instead of xml. We'll see how far we
+get!
+
+This is entirely inspired by MOP / iMatix / gsl.
