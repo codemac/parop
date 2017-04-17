@@ -11,40 +11,105 @@ exec guile -e "main" -s "$0" "$@"
 ;; ok, so there is ~(), which we can do inline anywhere, and then
 ;; replace with
 
+(use-modules (ice-9 format)
+	     (ice-9 q)
+	     (srfi srfi-2)
+	     (sxml simple)
+	     (sxml xpath))
 
-(define (process-inner-raw char iport)
+(define (usage)
+  (display "parop -<attr>:<value> inputscript.pop > outputfile"))
+
+;; can replace the q-empty? check once this is working more properly,
+;; so the exception can unwind entirely up the stack, alerting us when
+;; we're doing some amount of xml propagation that we didn't want to
+;; do.
+(define (scope-current)
+  (if (q-empty? *scope-q*)
+      #f
+      (q-front *scope-q*)))
+
+(define *scope-q* (make-q))
+
+
+(define* (ref sym #:optional (case 'none))
+  ;; look up symbol in xml-ness
+  ;; first look at current sxml scope
+  (scope-current)
+  )
+
+;; find list of relevant things, finding the most specific possible
+;; reference, whether they be attributes or what.
+
+(define (scope-push syms)
+  "For each in SYM, push scope until we find what we're looking for,
+or error that we didn't find what was specified."
+  (push-q! ((sxpath syms) (scope-current)) *scope-q*))
+
+(define* (for-ref syms proc #:optional (case 'none))
+  "For each element in the list of SYM, do the following proc. SYM is
+split by dots, no dotted symbols are allowed because I say so."
+  (let* ((split-syms (map string->symbol (string-split (symbol->string syms) #\.)))
+	 (scope      (sxml-ref syms (scope-current))))
+    (for-each proc scope)))
+
+(define (printable-to-chars p)
+  (reverse
+   (string->list
+    (format #f "~a" p))))
+
+(define (process-inner-raw-loop iport)
   (define rawresult '())
-  ;; first, read in first newline
-  (if (not (eq? (peek-char iport) #\newline))
-      (error "Need a newline after beginning #~!"))
-  ;; now discard that newline! hah
-  (read-char iport)
   (let loop ((cic (read-char iport)))
     (cond
      ((eof-object? cic)
       (error "Didn't find a concluding ~#, bug??"))
      ((eq? cic #\~)
-      (if (eq? (peek-char iport) #\#)
-	  (begin
-	       ;; advance 1 char to get rid of hash
-	    (read-char iport)
-	    ;; then remove final newline by using cdr
-	    (if (not (eq? (car rawresult) #\newline))
-		(error "Need a newline before final concluding ~#"))
-	    `(display ,(reverse-list->string (cdr rawresult))))
-	  (begin
-	    (set! rawresult (cons cic rawresult))
-	    (loop (read-char iport)))))
+      (cond
+       ((eq? (peek-char iport) #\#)
+	(begin
+	  ;; advance 1 char to get rid of hash
+	  (read-char iport)
+	  `(display ,(reverse-list->string rawresult))))
+       ((eq? (peek-char iport) #\()
+	(and-let* ((expr (read iport))
+		   (outr (open-output-string))
+		   (oldout (current-output-port))
+		   ((set-current-output-port outr))
+		   (output (primitive-eval expr))
+		   ((set-current-output-port oldout)))
+	  (set! rawresult (append (reverse (string->list (get-output-string outr))) rawresult)))
+	(loop (read-char iport)))
+       ((eq? (peek-char iport) #\~)
+	(begin
+	  (read-char iport)
+	  (set! rawresult (cons cic rawresult))
+	  (loop (read-char iport))))
+       (else
+	(error "Dangling tilde!"))))
      (else
-      (set! rawresult (cons cic rawresult))
-      (loop (read-char iport))))))
+      (begin
+	(set! rawresult (cons cic rawresult))
+	(loop (read-char iport)))))))
 
+(define (process-inner-raw char iport)
+  ;; first, read in first newline
+  (cond
+   ((eq? (peek-char iport) #\newline)
+    (read-char iport)
+    (process-inner-raw-loop iport))
+   (else
+    (error "Need newline after beginning #~!"))))
+
+;; install the handler into the scheme reader
 (read-hash-extend #\~ process-inner-raw)
+
 (define (printable? s)
   (or (number? s)
       (string? s)
       (list?   s)
       (symbol? s)))
+
 ;; lifted from lips
 (define (process-outer-raw iport oport)
   (define line-number 0)
@@ -111,17 +176,17 @@ exec guile -e "main" -s "$0" "$@"
 ;; rawtext? I think it's potentially that the scheme reader is not
 ;; like an XML reader. It doesn't just let raw text exist
 ;; e'erywhere.... shit my template language (empty text) doesn't
-;; include sxml parsing! ass!
+;; include sxml parsing! ass! (wait yes it does! ~( raw mode! ).).
 (define (main args)
   (case (length args)
-    ((3)
-     (set-current-input-port (open-file (list-ref args 1) "r"))
-     (set-current-output-port (open-file (list-ref args 2) "w")))
+    ((2)
+     (set-current-input-port (open-file (list-ref args 1) "r")))
     ((1) '())
     (else (usage)))
 
   ;; if scheme mode (will we ever do this?!)
   (read-and-eval!)
 
-  ;; if template mode
-  (process-outer-raw (current-input-port) (current-output-port)))
+  ;; if 'raw' mode
+;  (process-outer-raw (current-input-port) (current-output-port))
+  )
