@@ -38,8 +38,9 @@ exec guile -e "main" -s "$0" "$@"
   (scope-current)
   )
 
-;; find list of relevant things, finding the most specific possible
-;; reference, whether they be attributes or what.
+;; We probably want some type of scope debugging 
+(define (scope-pop)
+  (pop-q! *scope-q*))
 
 (define (scope-push syms)
   "For each in SYM, push scope until we find what we're looking for,
@@ -50,8 +51,11 @@ or error that we didn't find what was specified."
   "For each element in the list of SYM, do the following proc. SYM is
 split by dots, no dotted symbols are allowed because I say so."
   (let* ((split-syms (map string->symbol (string-split (symbol->string syms) #\.)))
-	 (scope      (sxml-ref syms (scope-current))))
-    (for-each proc scope)))
+	 (scope      (scope-push syms)))
+    (if (< (length scope) 1)
+	(error "Nothing found")) ; TODO: we'll skip this as it gets better, this will be a normal usecase
+    (for-each proc scope)
+    (scope-pop)))
 
 (define (printable-to-chars p)
   (reverse
