@@ -1,0 +1,14 @@
+<page
+    name = "fruit"
+    title = "Our Fruit Stand"
+    subtitle = "Lucious Tropical Fruits"
+    >
+<content>
+<h3>Always fresh</h3>
+<p>Just like it was plucked from the tree last month.</p>
+<h3>Special deal</h3>
+<p>Any five pieces of fruit, for the price of ten!</p>
+<h3>Money back if not satisfied</h3>
+<p>We'll give you your money back if we're not satisfied with it!</p>
+</content>
+</page>

@@ -1,0 +1,9 @@
+(site
+ (@
+  (copyright "Copyright &#169; Local Grocer")
+  (script "sitegen.scm"))
+ (section (@ (name "Welcome"))
+  (page (@ (name "index"))))
+ (section (@ (name "Products"))
+  (page (@ (name "fruit")))
+  (page (@ (name "vegetables")))))

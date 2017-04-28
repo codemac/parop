@@ -1,3 +1,4 @@
+#~
 ;;; This is a test program, to see if I can do Parenthesis Orient
 ;;; Programming.
 ;;;
@@ -15,3 +16,4 @@ This should be printed for each
 ~#)
 	   '(1 2 3 4))
 
+~#

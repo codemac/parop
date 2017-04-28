@@ -1,0 +1,17 @@
+.###  Since we run the script off the XML file, it starts in
+.###  template mode.
+.template 0
+ for section
+    for page
+        ###  Load XML <page> data
+        xml to section from "$(page.name).xml"
+        ###  Delete old <page> tag
+        delete page
+    endfor
+ endfor
+ for section
+    for page
+        include "template.gsl"
+    endfor
+ endfor
+.endtemplate

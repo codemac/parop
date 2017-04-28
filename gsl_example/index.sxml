@@ -1,0 +1,12 @@
+(page
+ (@
+  (name "index")
+  (title "Local Grocer")
+  (subtitle "Visit the Local Grocer"))
+ (content
+  (h3 "Close to you")
+  (p "We're just around the corner, if you live near by.")
+  (h3 "Always open")
+  (p "And if we're closed, just come back tomorrow.")
+  (h3 "Cheap and convenient")
+  (p "Much cheaper and easier than growing your own vegetables and fruit.")))

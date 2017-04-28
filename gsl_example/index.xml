@@ -1,0 +1,14 @@
+<page
+    name = "index"
+    title = "Local Grocer"
+    subtitle = "Visit the Local Grocer"
+    >
+<content>
+<h3>Close to you</h3>
+<p>We're just around the corner, if you live near by.</p>
+<h3>Always open</h3>
+<p>And if we're closed, just come back tomorrow.</p>
+<h3>Cheap and convenient</h3>
+<p>Much cheaper and easier than growing your own vegetables and fruit.</p>
+</content>
+</page>

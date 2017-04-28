@@ -1,0 +1,12 @@
+(page
+ (@ (name "fruit")
+    (title "Our Fruit Stand")
+    (subtitle "Lucious Tropical Fruits"))
+
+ (content
+  (h3 "Always fresh")
+  (p "Just like i twas plucked from the tree last month.")
+  (h3 "Special deal")
+  (p "Any five pieces of fruit, for the price of ten!")
+  (h3 "Mony back if not satisfied")
+  (p "We'll give you your money back if we're not satisfied with it!")))

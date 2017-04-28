@@ -1,0 +1,14 @@
+(page
+ (@
+  (name "vegetables")
+  (title "Our Vegetables")
+  (subtitle "Healthy Organic Vegetables"))
+ (content
+  (h3 "100% organic vegetables")
+  (p #~
+All vegetables made from cardon, oxygen, and hydrogen molecules
+with trace elements.~#)
+  (h3 "Country fresh style")
+  (p "We don't know what that means, but it sounded nice!")
+  (h3 "Unique take-away concept")
+  (p "Now you can consume your vegetables in the comfort of your own home.")))

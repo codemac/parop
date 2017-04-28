@@ -1,0 +1,119 @@
+We'll make the web site as several XML files. This is a design
+choice. We could also make the site as a single large XML file. It's a
+trade-off between ease of use (a single file is easier in smaller
+cases) and scalability (it's not practical to edit a large site with
+hundreds of pages as a single file).
+
+To start with, we'll define the overall site like this:
+
+<?xml version = "1.0" ?>
+<site
+    copyright = "Copyright &#169; Local Grocer"
+    script = "sitegen_1.gsl"
+    >
+<section name = "Welcome">
+    <page name = "index" />
+</section>
+<section name = "Products">
+    <page name = "fruit" />
+    <page name = "vegetables" />
+</section>
+</site>
+
+Note the first line, which defines the file as XML, and the script
+tag, which tells GSL what script to run to process the data. We've
+defined three pages. Let's write very a simple version of each of
+these:
+
+Next, we will write three more short XML files as shown below. First the index page:
+
+<page
+    name = "index"
+    title = "Local Grocer"
+    subtitle = "Visit the Local Grocer"
+    >
+<content>
+<h3>Close to you</h3>
+<p>We're just around the corner, if you live near by.</p>
+<h3>Always open</h3>
+<p>And if we're closed, just come back tomorrow.</p>
+<h3>Cheap and convenient</h3>
+<p>Much cheaper and easier than growing your own vegetables and fruit.</p>
+</content>
+</page>
+
+Next, the fruit page:
+
+<page
+    name = "fruit"
+    title = "Our Fruit Stand"
+    subtitle = "Lucious Tropical Fruits"
+    >
+<content>
+<h3>Always fresh</h3>
+<p>Just like it was plucked from the tree last month.</p>
+<h3>Special deal</h3>
+<p>Any five pieces of fruit, for the price of ten!</p>
+<h3>Money back if not satisfied</h3>
+<p>We'll give you your money back if we're not satisfied with it!</p>
+</content>
+</page>
+
+and last the vegetable page:
+
+<page
+    name = "vegetables"
+    title = "Our Vegetables"
+    subtitle = "Healthy Organic Vegetables"
+>
+<content>
+<h3>100% organic vegetables</h3>
+<p>All vegetables made from cardon, oxygen, and hydrogen molecules
+with trace elements.</p>
+<h3>Country fresh style</h3>
+<p>We don't know what that means, but it sounded nice!</p>
+<h3>Unique take-away concept</h3>
+<p>Now you can consume your vegetables in the comfort of your own home.</p>
+</content>
+</page>
+
+Finally, here is the first draft of the web generation script. It does
+not produce anything, it simply loads the web site data into an XML
+tree and then saves this (in a file called root.xml) that we can look
+at to see what live data the script is actually working with:
+
+.###  Since we run the script off the XML file, it starts in
+.###  template mode.
+.template 0
+ for section
+    for page
+        ###  Load XML <page> data
+        xml to section from "$(page.name).xml"
+        ###  Delete old <page> tag
+        delete page
+    endfor
+ endfor
+ save root
+.endtemplate
+
+Let's look at what this script does. First, it switches off template
+mode so we can write ordinary GSL without starting each line with a
+dot. GSL starts scripts in template mode if they are launched from the
+XML file. It's useful in many cases but not here. So, we wrap the
+whole script in .template 0 and .endtemplate.
+
+Second, the script works through each section and page, and loads the
+XML data for that page. It does this using two commands, xml and
+delete. The first loads XML data from a file into the specified scope
+(<section>, in this case), and the second deletes the current page
+(since the loaded data also contains a <page> tag).
+
+Finally, the script saves the whole XML tree to a file. If you want to
+try the next steps you must have installed GSL, as I described in the
+last article. Run the script like this:
+
+gsl site
+
+GSL looks for the file called site.xml. When the script has run, take
+a look at root.xml. This shows you what we're going to work with to
+generate the real HTML.

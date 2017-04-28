@@ -1,0 +1,13 @@
+<?xml version = "1.0" ?>
+<site
+    copyright = "Copyright &#169; Local Grocer"
+    script = "sitegen_1.gsl"
+    >
+<section name = "Welcome">
+    <page name = "index" />
+</section>
+<section name = "Products">
+    <page name = "fruit" />
+    <page name = "vegetables" />
+</section>
+</site>

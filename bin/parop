@@ -10,52 +10,187 @@ exec guile -e "main" -s "$0" "$@"
 ;;;
 ;; ok, so there is ~(), which we can do inline anywhere, and then
 ;; replace with
-
-(use-modules (ice-9 format)
+(use-modules (system vm trace)
+	     (ice-9 format)
+	     (ice-9 getopt-long)
 	     (ice-9 q)
+	     (srfi srfi-1)
 	     (srfi srfi-2)
+	     (srfi srfi-11)
 	     (sxml simple)
-	     (sxml xpath))
+	     (ice-9 pretty-print)
+	     ((sxml xpath)
+	      #:prefix sxpath:))
 
 (define (usage)
   (display "parop -<attr>:<value> inputscript.pop > outputfile"))
 
-;; can replace the q-empty? check once this is working more properly,
-;; so the exception can unwind entirely up the stack, alerting us when
-;; we're doing some amount of xml propagation that we didn't want to
-;; do.
-(define (scope-current)
-  (if (q-empty? *scope-q*)
-      #f
-      (q-front *scope-q*)))
+;;; our global context for each run. GSL has the following contexts:
+;;;
+;;;    The first predefined scope is called global and can be used to
+;;;    hold global data. Its underlying data structure is a symbol
+;;;    table; it may have attributes with any name and any type (scalar
+;;;    or structured), but no children.
+;;;
+;;;    The second predefined scope is called gsl and holds GSL internal
+;;;    data. NB. At the current moment there is a namespace clash
+;;;    between the scope gsl and the instruction gsl. This can be
+;;;    avoided by the use of square brackets [gsl] to reference the
+;;;    scope. The problem will disappear when the gsl instruction is
+;;;    deprecated.
+;;;
+;;;    The third predefined scope is called class and holds the classes
+;;;    registered with GSL. These are typically: file, string, env,
+;;;    conv, math, sock, thread, xml, time, regexp, proc and diag. They
+;;;    should be documented below.
+;;;
+;;;    The fourth predefined scope is called root. It refers to an XML
+;;;    item also called root, which is typically used as a parent for
+;;;    all other XML structures.
+;;;
+;;;    The fifth and final predefined scope is the top-level XML item
+;;;    from the XML source file, if one was specified.
+;;;
+;;; We do not need to replicate the "global" scope, as we have the
+;;; global scheme environment. Similarly with the gsl scope, we just
+;;; need to pick a namespace we stick with for users to trust. The
+;;; third looks just like "libraries". Which we'll have to do, but
+;;; once again, not a scope afaict.
+;;;
+;;; The thing I can't figure out what root is vs the fifth "file top
+;;; level xml scope". Need some more time to figure that out.
 
-(define *scope-q* (make-q))
 
+(define *scope-q* '())
+
+;; This is our "root" structure, that will contain all our xml related
+;; data. Need to come up with a much sticter "data model" for how this
+;; is layed out. my guess is that it will be *TOP* -> FILENAME/NAME??
+;; -> top level elmnt
+(define *xml-roots* '(*TOP*))
+
+(define (symref->list s)
+  (map string->symbol (string-split (symbol->string s) #\.)))
+
+;; (define-syntax ref
+;;   (syntax-rules ()
+;;     ((_ ref)
+;;      (let (())))))
+
+(define (xml-value s) (cadr s))
+(define* (read-ref r sym #:optional (style 'none) (as "~a"))
+  (let ((res   (format #f as (xml-value (match-xml-attribute sym (xml-element-attributes r))))))
+    (format #t "res: ~s~%" res)
+    res))
 
 (define* (ref sym #:optional (case 'none))
-  ;; look up symbol in xml-ness
-  ;; first look at current sxml scope
-  (scope-current)
-  )
+  (let ((syms (symref->list sym)))
+    (if (> (length syms) 1)
+	((sxpath:sxpath (append *scope-q* (drop-right syms 1)))))))
 
-;; We probably want some type of scope debugging 
-(define (scope-pop)
-  (pop-q! *scope-q*))
+(define (realpair? a)
+  (and (pair? a) (pair? (cdr a))))
 
-(define (scope-push syms)
+(define (clone ls)
+  (cond
+   ((null? ls)
+    ls)
+   ((list? ls)
+    (cons (clone (car ls)) (clone (cdr ls))))
+   ((realpair? ls)
+    (cons (car ls) (clone (cdr ls))))
+   (else
+    ls)))
+
+(define (sxml-cond-fold ls syms proc)
+  (let ((ret (sxml-cond-fold1 ls syms proc)))
+    (format #t "sxml-cond-fold: ~s~%" ret)
+    ret))
+;;; What is "well defined" sxml?
+;;;
+;;; sxml 
+(define (sxml-cond-fold1 ls syms proc)
+  (format #t "sxml-cond-fold1:~% syms: ~s~% ls:   ~s ~%" syms ls)
+  (cond
+   ((null? ls) '())
+   ((= 0 (length syms))
+    (clone ls))
+   ((and (list? ls)
+	 (list? (car ls))
+	 (eq? '@ (caar ls))
+	 (not (eq? '@ (car syms))))
+    (cons (car ls)
+	  (sxml-cond-fold (cdr ls) syms proc)))
+   ((and (list? ls)
+	 (list? (car ls))
+	 (eq? (caar ls) (car syms)))
+    (if (= 1 (length syms))
+	(map proc ls)
+	(cons
+	 (cons
+	  (caar ls)
+	  (sxml-cond-fold (cdar ls) (cdr syms) proc))
+	 (sxml-cond-fold (cdr ls) syms proc))))
+   (else
+    (clone ls))))
+
+(define (scope-find syms)
   "For each in SYM, push scope until we find what we're looking for,
 or error that we didn't find what was specified."
-  (push-q! ((sxpath syms) (scope-current)) *scope-q*))
+  ((sxpath:sxpath (append *scope-q* syms)) *xml-roots*))
 
-(define* (for-ref syms proc #:optional (case 'none))
-  "For each element in the list of SYM, do the following proc. SYM is
-split by dots, no dotted symbols are allowed because I say so."
-  (let* ((split-syms (map string->symbol (string-split (symbol->string syms) #\.)))
-	 (scope      (scope-push syms)))
-    (if (< (length scope) 1)
-	(error "Nothing found")) ; TODO: we'll skip this as it gets better, this will be a normal usecase
-    (for-each proc scope)
-    (scope-pop)))
+(define (sxml-read f)
+  "Read an SXML file into something for the xml roots list. At some
+point we should support XML as well, though it won't work with our
+reader hacks :("
+  (let* ((fp (open-file f "r"))
+	 (result '()))
+    (set! result (let repl-loop ((expr (read fp)))
+		   (if (not (eof-object? expr))
+		       (cons expr (repl-loop (read fp)))
+		       (begin
+			 (close-port fp)
+			 '()))))
+    result))
+
+(define (parop-add-file! root)
+  (set! *xml-roots* (append! *xml-roots* root)))
+
+(define (last-car l)
+  (car (last-pair l)))
+
+(define-syntax for-ref-swap
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_ nodes expr ...)
+       (with-syntax
+	   ((nodearg (datum->syntax stx (last-car (symref->list (syntax->datum #'nodes))))))
+	 #'(begin
+	     (set! *xml-roots*
+	       (cons
+		(car *xml-roots*)
+		(sxml-cond-fold
+		 (cdr *xml-roots*)
+		 (symref->list (quote nodes))
+		 (lambda (nodearg)
+		   expr ...))))))))))
+
+
+;; TODO: ok - much easier plan here is to ¡¡¡*rebuild*!!! things as we
+;; process these entries. So given the arg we pass into each, we
+;; return it upward to remake our sxml structure. hard part to figure
+;; out is how to handle the multi-root issues.
+
+(define-syntax for-ref
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_ nodes expr ...)
+       (with-syntax
+	   ((nodearg (datum->syntax stx (last-car (symref->list (syntax->datum #'nodes))))))
+	   #'(for-each
+	      (lambda (nodearg)
+		expr ...)
+	      (scope-find (symref->list (quote nodes)))))))))
 
 (define (printable-to-chars p)
   (reverse
@@ -74,7 +209,7 @@ split by dots, no dotted symbols are allowed because I say so."
 	(begin
 	  ;; advance 1 char to get rid of hash
 	  (read-char iport)
-	  `(display ,(reverse-list->string rawresult))))
+	  (reverse-list->string rawresult)))
        ((eq? (peek-char iport) #\()
 	(and-let* ((expr (read iport))
 		   (outr (open-output-string))
@@ -164,6 +299,43 @@ split by dots, no dotted symbols are allowed because I say so."
       (if (not (eof-object? cic))
         (loop (read-char iport)))))
 
+(define (xml-element-attributes s)
+    (if (and (pair? s) (symbol? (car s)))
+        (fold-right (lambda (a b)
+                      (if (and (pair? a) (eq? '@ (car a)))
+                          (if (null? b)
+                              (filter (lambda (i) (not (and (pair? i) (eq? '@ (car i))))) (cdr a))
+                              (fold-right (lambda (c d)
+                                            (if (and (pair? c) (eq? '@ (car c)))
+                                                d
+                                                (cons c d)))
+                                          b (cdr a)))
+                          b))
+                    '()
+                    (cdr s))
+        (error 'xml-element-attributes "expected an xml-element, given" s)))
+
+(define (match-xml-attribute key l)
+  (if (not (pair? l))
+      #f
+      (if (eq? (car (car l)) key)
+	  (car l)
+	  (match-xml-attribute key (cdr l)))))
+
+(define (parop-find-script override)
+  (if override
+      override
+      (if (= (length *xml-roots*) 2)
+	  (cadr
+	   (match-xml-attribute
+	    'script
+	    (xml-element-attributes (cadr *xml-roots*)))))))
+
+(define (sxml-save! f)
+  (let ((s (open-file f "w")))
+    (pretty-print *xml-roots* s #:width 80)
+    (close-port s)))
+
 (define* (read-and-eval! #:optional (port (current-input-port)))
   (let repl-loop ((expr (read port)))
     (if (not (eof-object? expr))
@@ -171,6 +343,29 @@ split by dots, no dotted symbols are allowed because I say so."
 	  (if (printable? output)
 	      (display output))
 	  (repl-loop (read port))))))
+
+(define *parop-option-spec*
+  '((data    (single-char #\d) (value #t))
+    (script  (single-char #\s) (value #t))
+    (help    (single-char #\h) (value #f))
+    (version (single-char #\v) (value #f))))
+
+(define (parop-opt sym)
+  (option-ref *parop-options* sym #f))
+
+(define *parop-options* (getopt-long (command-line) *parop-option-spec*))
+
+(define (helpf)
+  (display "\
+parop [options] [-d|-s] <file> ...
+  -h, --help         Print help message
+  -v, --version      Print version info
+  -d, --data FILE    Use FILE as data input file
+  -s, --script FILE  Use FILE as script to run on data file
+"))
+
+(define (versionf)
+  (display "parop version v0.0\n"))
 
 ;; we should define how we want to read. Either in SXML default
 ;; (i.e. template data), RAWTEXT default (template text), or in SCHEME
@@ -182,15 +377,25 @@ split by dots, no dotted symbols are allowed because I say so."
 ;; e'erywhere.... shit my template language (empty text) doesn't
 ;; include sxml parsing! ass! (wait yes it does! ~( raw mode! ).).
 (define (main args)
-  (case (length args)
-    ((2)
-     (set-current-input-port (open-file (list-ref args 1) "r")))
-    ((1) '())
-    (else (usage)))
+  (let* ((help    (parop-opt 'help))
+	 (version (parop-opt 'version))
+	 (script  (parop-opt 'script))
+	 (data    (parop-opt 'data)))
+    (cond
+     (help (helpf) (exit 0))
+     (version (versionf) (exit 0))
+     (data
+      (parop-add-file! (sxml-read data))
+      (let ((s (parop-find-script script)))
+	(format #t "script: ~s~%" s)
+	(read-and-eval! (open-file (parop-find-script script) "r")))
 
-  ;; if scheme mode (will we ever do this?!)
-  (read-and-eval!)
+      (exit 0))
+     (else
+      (display "Not enough to do!") (newline)
+      (helpf)
+      (exit 1))))
 
-  ;; if 'raw' mode
-;  (process-outer-raw (current-input-port) (current-output-port))
+  ;; template mode
+;;  (process-outer-raw (current-input-port) (current-output-port))
   )
