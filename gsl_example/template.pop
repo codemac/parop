@@ -6,50 +6,49 @@
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html>
 <head>
-  <title>~(ref 'page.title)</title>
+  <title>~(read-ref page 'title)</title>
   <link rel="stylesheet" href="default.css" type="text/css"/>
 </head>
 <body>
   <div id="left_container">
     <div id="logo_container">
-      <a href="index.html"><img id="logo" src="$(page.name).jpg"/></a>
+      <a href="index.html"><img id="logo" src="~(read-ref page 'name).jpg"/></a>
     </div>
     <div id="menu_container">
-.for site.section
-      <h3 class="menu_heading">$(section.name)</h3>
+~(for-ref site.section
+#~
+      <h3 class="menu_heading">~(read-ref section 'name)</h3>
       <ul class="menu_item">
-.   for page
-        <li><a class="menu_item" href="$(page.name).html">$(page.title)</a></li>
-.   endfor
+~(for-ref page
+#~
+        <li><a class="menu_item" href="~(read-ref page 'name).html">~(read-ref page 'title)</a></li>
+~#)
       </ul>
-.endfor
+~#)
 
 ~(for-sxml 'site.section #~
-      <h3 class="menu_heading">~($ 'page.name)</h3>
-
+      <h3 class="menu_heading">~(read-ref page 'name)</h3>
 ~#)
 
 
       <h3 class="menu_heading">Copyright</h3>
     </div>
     <div id="copyright">
-      <p>$(copyright)</p>
+      <p>~(read-ref copyright)</p>
     </div>
     <h3 class="menu_heading"> </h3>
   </div>
   <div id="right_container">
     <div id="title_container">
-      <h1 id="title">$(page.title)</h1>
-      <h2 id="title">$(page.subtitle)</h2>
+      <h1 id="title">~(read-ref page 'title)</h1>
+      <h2 id="title">~(read-ref page 'subtitle)</h2>
     </div>
     <div id="content_container">
     <!-- Page content -->
-.for content
-    $(content.string ())
-.endfor
+~(read-ref content)
     <!-- End page content -->
     </div>
   </div>
 </body>
 </html>
-.endtemplate
+~#

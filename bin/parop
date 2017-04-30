@@ -22,9 +22,6 @@ exec guile -e "main" -s "$0" "$@"
 	     ((sxml xpath)
 	      #:prefix sxpath:))
 
-(define (usage)
-  (display "parop -<attr>:<value> inputscript.pop > outputfile"))
-
 ;;; our global context for each run. GSL has the following contexts:
 ;;;
 ;;;    The first predefined scope is called global and can be used to
@@ -77,11 +74,16 @@ exec guile -e "main" -s "$0" "$@"
 ;;     ((_ ref)
 ;;      (let (())))))
 
-(define (xml-value s) (cadr s))
-(define* (read-ref r sym #:optional (style 'none) (as "~a"))
-  (let ((res   (format #f as (xml-value (match-xml-attribute sym (xml-element-attributes r))))))
-    (format #t "res: ~s~%" res)
-    res))
+(define* (read-ref r sym #:key (style 'none) (as "~a"))
+  (define (xml-value s) (cadr s))
+  (let ((res (xml-value (match-xml-attribute sym (xml-element-attributes r)))))
+    (format #f as
+	    ((case style
+	       ((upcase) string-upcase)
+	       ((downcase) string-downcase)
+	       ((title) string-titlecase)
+	       (else identity))
+	     res))))
 
 (define* (ref sym #:optional (case 'none))
   (let ((syms (symref->list sym)))
@@ -102,15 +104,10 @@ exec guile -e "main" -s "$0" "$@"
    (else
     ls)))
 
-(define (sxml-cond-fold ls syms proc)
-  (let ((ret (sxml-cond-fold1 ls syms proc)))
-    (format #t "sxml-cond-fold: ~s~%" ret)
-    ret))
 ;;; What is "well defined" sxml?
 ;;;
 ;;; sxml 
-(define (sxml-cond-fold1 ls syms proc)
-  (format #t "sxml-cond-fold1:~% syms: ~s~% ls:   ~s ~%" syms ls)
+(define (sxml-cond-fold ls syms proc)
   (cond
    ((null? ls) '())
    ((= 0 (length syms))
@@ -139,6 +136,14 @@ exec guile -e "main" -s "$0" "$@"
 or error that we didn't find what was specified."
   ((sxpath:sxpath (append *scope-q* syms)) *xml-roots*))
 
+(define (xml-read f)
+  (let* ((fp (open-file f "r"))
+	 (res (xml->sxml fp #:trim-whitespace? #t)))
+    (close-port fp)
+    (if (= 2 (length res))
+	(cadr res)
+	res)))
+
 (define (sxml-read f)
   "Read an SXML file into something for the xml roots list. At some
 point we should support XML as well, though it won't work with our
@@ -159,7 +164,7 @@ reader hacks :("
 (define (last-car l)
   (car (last-pair l)))
 
-(define-syntax for-ref-swap
+(define-syntax for-ref-set!
   (lambda (stx)
     (syntax-case stx ()
       ((_ nodes expr ...)
@@ -180,17 +185,17 @@ reader hacks :("
 ;; process these entries. So given the arg we pass into each, we
 ;; return it upward to remake our sxml structure. hard part to figure
 ;; out is how to handle the multi-root issues.
-
 (define-syntax for-ref
   (lambda (stx)
     (syntax-case stx ()
       ((_ nodes expr ...)
        (with-syntax
 	   ((nodearg (datum->syntax stx (last-car (symref->list (syntax->datum #'nodes))))))
-	   #'(for-each
-	      (lambda (nodearg)
-		expr ...)
-	      (scope-find (symref->list (quote nodes)))))))))
+	 #'(sxml-cond-fold
+	    (cdr *xml-roots*)
+	    (symref->list (quote nodes))
+	    (lambda (nodearg)
+	      expr ...)))))))
 
 (define (printable-to-chars p)
   (reverse
@@ -340,14 +345,15 @@ reader hacks :("
   (let repl-loop ((expr (read port)))
     (if (not (eof-object? expr))
 	(let ((output (primitive-eval expr)))
-	  (if (printable? output)
-	      (display output))
+	  ;; (if (printable? output)
+	  ;;     (display output))
 	  (repl-loop (read port))))))
 
 (define *parop-option-spec*
-  '((data    (single-char #\d) (value #t))
-    (script  (single-char #\s) (value #t))
+  '((sdata   (single-char #\s) (value #t))
+    (script  (single-char #\l) (value #t))
     (help    (single-char #\h) (value #f))
+    (xdata   (single-char #\x)  (value #f))
     (version (single-char #\v) (value #f))))
 
 (define (parop-opt sym)
@@ -358,10 +364,11 @@ reader hacks :("
 (define (helpf)
   (display "\
 parop [options] [-d|-s] <file> ...
-  -h, --help         Print help message
-  -v, --version      Print version info
-  -d, --data FILE    Use FILE as data input file
-  -s, --script FILE  Use FILE as script to run on data file
+  -h, --help               Print help message
+  -l, --script FILE        Use FILE as script to run on data file
+  -s, --scheme-data FILE   Use FILE as scheme data input file
+  -x, --xml-data FILE      Use FILE as xml data input file
+  -v, --version            Print version info
 "))
 
 (define (versionf)
@@ -379,17 +386,19 @@ parop [options] [-d|-s] <file> ...
 (define (main args)
   (let* ((help    (parop-opt 'help))
 	 (version (parop-opt 'version))
+	 (xdata   (parop-opt 'xdata))
 	 (script  (parop-opt 'script))
-	 (data    (parop-opt 'data)))
+	 (sdata   (parop-opt 'sdata)))
     (cond
      (help (helpf) (exit 0))
      (version (versionf) (exit 0))
-     (data
-      (parop-add-file! (sxml-read data))
-      (let ((s (parop-find-script script)))
-	(format #t "script: ~s~%" s)
-	(read-and-eval! (open-file (parop-find-script script) "r")))
-
+     (sdata
+      (parop-add-file! (sxml-read sdata))
+      (read-and-eval! (open-file (parop-find-script script) "r"))
+      (exit 0))
+     (xdata
+      (parop-add-file! (sxml-read xdata))
+      (read-and-eval! (open-file (parop-find-script script) "r"))
       (exit 0))
      (else
       (display "Not enough to do!") (newline)
