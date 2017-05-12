@@ -1,6 +1,3 @@
-;;  This whole script runs in template mode.
-;;
-;;
 #~
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
@@ -15,18 +12,18 @@
       <a href="index.html"><img id="logo" src="~(read-ref page 'name).jpg"/></a>
     </div>
     <div id="menu_container">
-~(for-ref site.section
+ ~(for site.section
 #~
       <h3 class="menu_heading">~(read-ref section 'name)</h3>
       <ul class="menu_item">
-~(for-ref page
+  ~(for page
 #~
         <li><a class="menu_item" href="~(read-ref page 'name).html">~(read-ref page 'title)</a></li>
-~#)
+~# )
       </ul>
 ~#)
 
-~(for-sxml 'site.section #~
+~(for site.section.page #~
       <h3 class="menu_heading">~(read-ref page 'name)</h3>
 ~#)
 
@@ -45,7 +42,7 @@
     </div>
     <div id="content_container">
     <!-- Page content -->
-~(read-ref content)
+~(read content)
     <!-- End page content -->
     </div>
   </div>

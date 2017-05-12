@@ -1,6 +1,6 @@
 #!/bin/sh
 # -*- scheme -*-
-exec guile -e "main" -s "$0" "$@"
+exec /home/jmickey/.guix-profile/bin/guile -e "main" -s "$0" "$@"
 !#
 ;;;;
 ;;;;
@@ -19,6 +19,7 @@ exec guile -e "main" -s "$0" "$@"
 	     (srfi srfi-11)
 	     (sxml simple)
 	     (ice-9 pretty-print)
+	     (ice-9 local-eval)
 	     ((sxml xpath)
 	      #:prefix sxpath:))
 
@@ -58,6 +59,7 @@ exec guile -e "main" -s "$0" "$@"
 ;;; level xml scope". Need some more time to figure that out.
 
 
+(define *wrapped-e* #f)
 (define *scope-q* '())
 
 ;; This is our "root" structure, that will contain all our xml related
@@ -164,7 +166,7 @@ reader hacks :("
 (define (last-car l)
   (car (last-pair l)))
 
-(define-syntax for-ref-set!
+(define-syntax for!
   (lambda (stx)
     (syntax-case stx ()
       ((_ nodes expr ...)
@@ -178,14 +180,17 @@ reader hacks :("
 		 (cdr *xml-roots*)
 		 (symref->list (quote nodes))
 		 (lambda (nodearg)
-		   expr ...))))))))))
+		   (set! *wrapped-e* (the-environment))
+		   (let ((result (begin expr ...)))
+		     (set! *wrapped-e* #f)
+		     result)))))))))))
 
 
 ;; TODO: ok - much easier plan here is to ¡¡¡*rebuild*!!! things as we
 ;; process these entries. So given the arg we pass into each, we
 ;; return it upward to remake our sxml structure. hard part to figure
 ;; out is how to handle the multi-root issues.
-(define-syntax for-ref
+(define-syntax for
   (lambda (stx)
     (syntax-case stx ()
       ((_ nodes expr ...)
@@ -195,14 +200,17 @@ reader hacks :("
 	    (cdr *xml-roots*)
 	    (symref->list (quote nodes))
 	    (lambda (nodearg)
-	      expr ...)))))))
+	      (set! *wrapped-e* (the-environment))
+	      (let ((result (begin expr ...)))
+		(set! *wrapped-e* #f)
+		result))))))))
 
 (define (printable-to-chars p)
   (reverse
    (string->list
     (format #f "~a" p))))
 
-(define (process-inner-raw-loop iport)
+(define* (process-inner-raw-loop iport #:key (e (the-environment)))
   (define rawresult '())
   (let loop ((cic (read-char iport)))
     (cond
@@ -220,7 +228,7 @@ reader hacks :("
 		   (outr (open-output-string))
 		   (oldout (current-output-port))
 		   ((set-current-output-port outr))
-		   (output (primitive-eval expr))
+		   (output (local-eval expr e))
 		   ((set-current-output-port oldout)))
 	  (set! rawresult (append (reverse (string->list (get-output-string outr))) rawresult)))
 	(loop (read-char iport)))
@@ -241,7 +249,7 @@ reader hacks :("
   (cond
    ((eq? (peek-char iport) #\newline)
     (read-char iport)
-    (process-inner-raw-loop iport))
+    (process-inner-raw-loop iport #:e (if *wrapped-e* *wrapped-e* (the-environment))))
    (else
     (error "Need newline after beginning #~!"))))
 
@@ -258,67 +266,69 @@ reader hacks :("
 (define (process-outer-raw iport oport)
   (define line-number 0)
   (define first-character #t)
-  ;line-number -> for error reporting
-  ;first-character -> are we processing the first character of the line?
-  ;			If so and it is a macro that produces no printable output
-  ;			and nothing else is on the line
-  ;			we will remove the following newline
-  ;we're going to loop over all the characters
-  ;in the file looking for escapes
-  ;cic -> current input character
+  ;; line-number -> for error reporting
+  ;; first-character -> are we processing the first character of the line?
+  ;;			If so and it is a macro that produces no printable output
+  ;;			and nothing else is on the line
+  ;;			we will remove the following newline
+  ;; we're going to loop over all the characters
+  ;; in the file looking for escapes
+  ;; cic -> current input character
   (let loop ((cic (read-char iport)))
-      (cond 
-	;if we find a tilda then check to see if the next character
-	;is also a tilda. If it is, then we output a tilda and eat the
-	;tilda from input.
-	((eq? cic #\~)
-		(if (eq? (peek-char iport) #\~)
-		  (begin
-		    (display "~" oport)
-		    (read-char iport))
-		  ;if the next character is not a tilda then read in a s-exp
-			;evaluate and print output
-			;if we're at the beginning of a line and the character
-			;following the expression is a newline then, if the expression
-			;doesn't evaluate to something printable, ignore the newline
-		  (let* ((expr (read iport))
-		        (output (primitive-eval expr))) 
-		      (if (printable? output)
-			(display output oport)
-			(if (and first-character
-			      (eq? (peek-char iport) #\newline))
-			  (read-char iport))))))
-
-	((eq? cic #\newline)					
-		(display cic oport)
-		(set! first-character #t)
-		(set! line-number (1+ line-number)))
-
-	((eof-object? cic))
-
-	(else
-	 	(if first-character 
-		  (set! first-character #f))
-	  	(display cic oport)))
-
-      (if (not (eof-object? cic))
-        (loop (read-char iport)))))
+    (cond 
+     ;; if we find a tilda then check to see if the next character
+     ;; is also a tilda. If it is, then we output a tilda and eat the
+     ;; tilda from input.
+     ((eq? cic #\~)
+      (if (eq? (peek-char iport) #\~)
+	  (begin
+	    (display "~" oport)
+	    (read-char iport))
+	  ;; if the next character is not a tilda then read in a s-exp
+	  ;; evaluate and print output
+	  ;; if we're at the beginning of a line and the character
+	  ;; following the expression is a newline then, if the expression
+	  ;; doesn't evaluate to something printable, ignore the newline
+	  (let* ((expr (read iport))
+		 (output (if *wrapped-e*
+			     (local-eval expr *wrapped-e*)
+			     (primitive-eval expr)))) 
+	    (if (printable? output)
+		(display output oport)
+		(if (and first-character
+			 (eq? (peek-char iport) #\newline))
+		    (read-char iport))))))
+     
+     ((eq? cic #\newline)					
+      (display cic oport)
+      (set! first-character #t)
+      (set! line-number (1+ line-number)))
+     
+     ((eof-object? cic))
+     
+     (else
+      (if first-character 
+	  (set! first-character #f))
+      (display cic oport)))
+    
+    (if (not (eof-object? cic))
+	(loop (read-char iport)))))
 
 (define (xml-element-attributes s)
-    (if (and (pair? s) (symbol? (car s)))
-        (fold-right (lambda (a b)
-                      (if (and (pair? a) (eq? '@ (car a)))
-                          (if (null? b)
-                              (filter (lambda (i) (not (and (pair? i) (eq? '@ (car i))))) (cdr a))
-                              (fold-right (lambda (c d)
-                                            (if (and (pair? c) (eq? '@ (car c)))
-                                                d
-                                                (cons c d)))
-                                          b (cdr a)))
-                          b))
-                    '()
-                    (cdr s))
-        (error 'xml-element-attributes "expected an xml-element, given" s)))
+  (if (and (pair? s) (symbol? (car s)))
+      (fold-right (lambda (a b)
+		    (if (and (pair? a) (eq? '@ (car a)))
+			(if (null? b)
+			    (filter (lambda (i) (not (and (pair? i) (eq? '@ (car i))))) (cdr a))
+			    (fold-right (lambda (c d)
+					  (if (and (pair? c) (eq? '@ (car c)))
+					      d
+					      (cons c d)))
+					b (cdr a)))
+			b))
+		  '()
+		  (cdr s))
+      (error 'xml-element-attributes "expected an xml-element, given" s)))
 
 (define (match-xml-attribute key l)
   (if (not (pair? l))
@@ -341,12 +351,17 @@ reader hacks :("
     (pretty-print *xml-roots* s #:width 80)
     (close-port s)))
 
+(define* (read-all port)
+  (let read-loop ((expr (read port)))
+    (if (not (eof-object? expr))
+	(cons expr (read-loop port))
+	'())))
 (define* (read-and-eval! #:optional (port (current-input-port)))
   (let repl-loop ((expr (read port)))
     (if (not (eof-object? expr))
-	(let ((output (primitive-eval expr)))
-	  ;; (if (printable? output)
-	  ;;     (display output))
+	(let ((output (if *wrapped-e*
+			  (local-eval expr *wrapped-e*)
+			  (primitive-eval expr))))
 	  (repl-loop (read port))))))
 
 (define *parop-option-spec*
@@ -360,6 +375,15 @@ reader hacks :("
   (option-ref *parop-options* sym #f))
 
 (define *parop-options* (getopt-long (command-line) *parop-option-spec*))
+
+(define (local-file-eval f e)
+  (local-eval '(format #t "page: ~s~%" page) e)
+  (let ((port (open-file f "r")))
+    (let repl-loop ((expr (read port)))
+      (if (not (eof-object? expr))
+	  (let ((output (local-eval expr e)))
+	    (repl-loop (read port)))))
+    (close-port f)))
 
 (define (helpf)
   (display "\
