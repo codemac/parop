@@ -8,8 +8,6 @@ exec /home/jmickey/.guix-profile/bin/guile -e "main" -s "$0" "$@"
 ;;; should be able to nest. Next is to figure out how to wrap this all
 ;;; up in sxml.
 ;;;
-;; ok, so there is ~(), which we can do inline anywhere, and then
-;; replace with
 (use-modules (system vm trace)
 	     (ice-9 format)
 	     (ice-9 getopt-long)
@@ -60,6 +58,7 @@ exec /home/jmickey/.guix-profile/bin/guile -e "main" -s "$0" "$@"
 
 
 (define *wrapped-e* #f)
+(define *wrapped-for* #f)
 (define *scope-q* '())
 
 ;; This is our "root" structure, that will contain all our xml related
